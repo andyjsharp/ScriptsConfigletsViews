@@ -1,0 +1,60 @@
+version 1.1;
+
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+ns str = "http://exslt.org/strings";
+ns jspace = "http://jspace-utils/asharp@juniper.net";
+ns func extension = "http://exslt.org/functions";
+ns jppc = "http://xml.juniper.net/jppc";
+
+import "../import/junos.xsl";
+
+/* @CONTEXT = "/device" */
+/* @NAME = "google pie" */
+/* @DESCRIPTION = "google pie" */
+/* @ISLOCAL = "true" */
+/* @PROMOTE = "yes" */
+
+match / {
+  <op-script-results> {
+    <output> {
+      <html> {
+        <head> {
+          var $myData = "['Type', 'Sessions'],['DHCP',11],['PPPOE',2],['VLAN',2],['ESSMD',2],['Others',7]";
+          var $myTitle = "Subscriber Sessions";
+          var $options = "title: 'Subscriber Sessions',is3D: true";
+          copy-of jspace:pie-chart($myData,$options);
+        }
+        <body> {
+          <div id="piechart" style="width: 500px; height: 280px;">;
+        }
+      }
+    }
+  }
+}
+
+<func:function name="jspace:pie-chart">
+{
+  param $data;
+  param $options;
+  var $jscript = {
+    uexpr '<script type="text/javascript" src="https://www.google.com/jsapi"></script>';
+    <script type="text/javascript"> {
+      uexpr 'google.load("visualization", "1", {packages:["corechart"]});';
+      uexpr 'google.setOnLoadCallback(drawChart);';
+      uexpr 'function drawChart() {';
+        uexpr "  var data = google.visualization.arrayToDataTable([";
+        uexpr $data;
+        uexpr "  ]);";
+        uexpr "  var options = {";
+        uexpr $options;
+        uexpr "  };";
+        uexpr "  var chart = new google.visualization.PieChart(document.getElementById('piechart'));";
+        uexpr "  chart.draw(data, options);";
+      uexpr "}";
+    }
+  }
+  <func:result select=" $jscript ">;
+}
+

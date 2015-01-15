@@ -1,0 +1,77 @@
+version 1.1;
+
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+ns str = "http://exslt.org/strings";
+
+import "../import/junos.xsl";
+
+/* @ISLOCAL = "true" */
+/* @NAME = "cfb-to-set" */
+/* @PROMOTE = "Yes" */
+
+/* a starting point for curly brace format to set commands. */
+
+match / {
+	<op-script-results> {
+		<output> {
+			var $local = jcs:open();
+			var $rpc = <get-configuration>;
+			var $cfg = jcs:execute( $local, $rpc );
+
+			var $set-commands = {
+				for-each ($cfg//*) {
+					if ( not(descendant::*) )  {
+						/* get path */
+						var $p = call jcs:edit-path();
+						/* remove brackets */
+						var $path = jcs:regex("\\[edit ([^]]+)\\]" , $p)[2];
+
+						var $command = {
+						/* tweak path */
+							if ( contains($path , "interfaces interface") ) {
+								expr str:replace($path,"interfaces interface","interfaces");
+							} else if (contains($path , "JMPFabric servers")) {
+								expr str:replace($path,"JMPFabric servers","JMPFabric");
+							} else if (contains($path , "contents ")) {
+								expr str:replace($path,"contents ","");
+							} else if (contains($path , "src-nat-rule-match ")) {
+								expr str:replace($path,"src-nat-rule-match ","match ");
+							} else if (contains($path , "filter-name ")) {
+								expr str:replace($path,"filter-name ","");
+							}
+							/* some processing of policies is required to handle from-zone-name ... to-zone-name ... */
+							/* processing of random space entries is also required for certain types of entries      */
+							/* plus any */
+							else {
+								expr $path;
+							}
+						}
+						
+						/* if it's a name node then don't repeat the value */
+						if ( name() == "name")  {
+							expr "set " _ $command _ "\n";
+						}
+						/* its ok to display the value*/
+						else {
+							/* if the value contains a space then use quotes */
+							if ( contains( ., " ") ) {
+								expr "set " _ $command _ " \"" _ . _ "\"\n";
+							}
+							/* display the value as is */
+							else {
+								expr "set " _ $command _ " " _ . _ "\n";
+							}
+						}
+					}
+				}
+			}
+
+			/* a process is required to then optimize the commands */
+
+			uexpr $set-commands;
+			expr jcs:close($local);
+		}
+	}
+}

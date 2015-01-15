@@ -1,0 +1,261 @@
+version 1.1;
+
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+ns str = "http://exslt.org/strings";
+ns jspace = "http://jspace-utils/asharp@juniper.net";
+ns func extension = "http://exslt.org/functions";
+ns jppc = "http://xml.juniper.net/jppc";
+
+import "../import/junos.xsl";
+
+/* @CONTEXT = "/device" */
+/* @NAME = "chart examples" */
+/* @DESCRIPTION = "chart examples" */
+/* @ISLOCAL = "true" */
+/* @PROMOTE = "yes" */
+
+/* Some examples using Google Charts */
+/* https://google-developers.appspot.com/chart/interactive/docs/index */
+
+match / {
+  <op-script-results> {
+    <output> {
+      <html> {
+        <head> {
+          /* Load the AJAX API */
+          uexpr '<script type="text/javascript" src="https://www.google.com/jsapi"></script>';
+        }
+        <body bgcolor="#FFFFFFFF"> {
+          <table align="center"> {
+            <tr valign="top"> {
+              <td style="width: 50%;"> {
+                <div style="width: 400px"> {
+                  /* perform whatever steps are required to generate data in a suitable format */
+                  var $pieData = "['Type', 'Sessions'],['DHCP',11],['PPPOE',2],['VLAN',2],['ESSMD',2],['Others',7]";
+                  /* provide additional options to google chart  */
+                  var $pieOptions = "title: 'Subscriber Sessions',is3D: true, forceIFrame: true, pieSliceText: 'percentage'";
+                  /* since the chart will be included within a <div>, define the style attributes for the <div> */
+                  var $pieStyle = "width: 400px; height: 220px;";
+                  /* finally call jspace:drawchart and provide the followin5 parameters */
+                  /*
+                   * chartData    - in a suitable DataTable format.
+                   * chartOptions - optional google chart options
+                   * divId        - the id to be assigned to the div that will contain the chart.
+                   * divStyle     - the style to assign to the div
+                   * chartType    - the chart type table, pie, histogram, column-chart, gauge
+                  */
+                  copy-of jspace:drawchart($pieData,$pieOptions,"pie",$pieStyle,"corechart","PieChart");
+                }
+              }
+              <td style="width: 50%;"> {
+                <div style="width: 400px"> {
+                  var $tableData = "['Type', 'Sessions'],['DHCP',11],['PPPOE',2],['VLAN',2],['ESSMD',2],['Others',7]";
+                  var $tableOptions = "";
+                  var $tableStyle = "width: 400px; height: 220px;";
+                  copy-of jspace:drawchart($tableData,$tableOptions,"table",$tableStyle,"table","Table");
+                }
+              }
+            }
+          }
+          <div> {
+            var $gaugeData = "['Resource', 'Value'],['CPU',85],['RAM',64],['Network',35],['Disk',49]";
+            var $gaugeOptions = "redFrom: 90, redTo: 100,yellowFrom:75, yellowTo: 90,minorTicks: 5,forceIFRame: true";
+            var $gaugeStyle = "width: 75%; height: 150px;margin: 0 auto;";
+            copy-of jspace:drawchart($gaugeData,$gaugeOptions,"gauge",$gaugeStyle,"Gauge","Gauge");
+          }
+          <p> {
+            expr "Column Chart Example";
+          }
+          <div> {
+            var $columnData = "['Routing Engine','RE Temp','CPU Temp'],['RE0',45,55],['RE1',65,34]";
+            var $columnOptions = "title: 'Routing Engine Temperature',hAxis: {title: 'Routing Engine', titleTextStyle: {color: 'red'}},vAxis: {title: 'Temperature (celsius)', titleTextStyle: {color: 'blue'}}";
+            var $columnStyle = "width: 100%; height: 75%;";
+            copy-of jspace:drawchart($columnData,$columnOptions,"column",$columnStyle,"corechart","ColumnChart");
+          }
+          <p> {
+            expr "Histogram Example";
+          }
+          <div> {
+            var $histogramData = "['Dinosaur', 'Length'],
+              ['Acrocanthosaurus (top-spined lizard)', 12.2],
+              ['Albertosaurus (Alberta lizard)', 9.1],
+              ['Allosaurus (other lizard)', 12.2],
+              ['Apatosaurus (deceptive lizard)', 22.9],
+              ['Archaeopteryx (ancient wing)', 0.9],
+              ['Argentinosaurus (Argentina lizard)', 36.6],
+              ['Baryonyx (heavy claws)', 9.1],
+              ['Brachiosaurus (arm lizard)', 30.5],
+              ['Ceratosaurus (horned lizard)', 6.1],
+              ['Coelophysis (hollow form)', 2.7],
+              ['Compsognathus (elegant jaw)', 0.9],
+              ['Deinonychus (terrible claw)', 2.7],
+              ['Diplodocus (double beam)', 27.1],
+              ['Dromicelomimus (emu mimic)', 3.4],
+              ['Gallimimus (fowl mimic)', 5.5],
+              ['Mamenchisaurus (Mamenchi lizard)', 21.0],
+              ['Megalosaurus (big lizard)', 7.9],
+              ['Microvenator (small hunter)', 1.2],
+              ['Ornithomimus (bird mimic)', 4.6],
+              ['Oviraptor (egg robber)', 1.5],
+              ['Plateosaurus (flat lizard)', 7.9],
+              ['Sauronithoides (narrow-clawed lizard)', 2.0],
+              ['Seismosaurus (tremor lizard)', 45.7],
+              ['Spinosaurus (spiny lizard)', 12.2],
+              ['Supersaurus (super lizard)', 30.5],
+              ['Tyrannosaurus (tyrant lizard)', 15.2],
+              ['Ultrasaurus (ultra lizard)', 30.5],
+              ['Velociraptor (swift robber)', 1.8]";
+            var $histogramOptions = "title: 'Lengths of dinosaurs, in meters',legend: { position: 'none' },";
+            var $histogramStyle = "width: 100%; height: 75%;";
+            copy-of jspace:drawchart($histogramData,$histogramOptions,"histogram",$histogramStyle,"corechart","Histogram");
+          }
+          <div> {
+            var $areaData = "['Year','Sales','Expenses'],['2013',1000,400],['2014',1170,460],['2015',660,1120],['2016',1030,540]";
+            var $areaOptions = "title: 'Company Performance',hAxis: {title: 'Year',  titleTextStyle: {color: '#333'}},vAxis: {minValue: 0}";
+            var $areaStyle = "width: 100%; height: 75%;";
+            copy-of jspace:drawchart($areaData,$areaOptions,"area",$areaStyle,"corechart","AreaChart");
+          }
+
+          <div> {
+            var $barData = "['Year', 'Sales', 'Expenses'],
+                            ['2004',  1000,      400],
+                            ['2005',  1170,      460],
+                            ['2006',  660,       1120],
+                            ['2007',  1030,      540]";
+            var $barOptions = "title: 'Company Performance',vAxis: {title: 'Year',  titleTextStyle: {color: 'red'}}";
+            var $barStyle = "width: 100%; height: 75%;";
+            copy-of jspace:drawchart($barData,$barOptions,"bar",$barStyle,"corechart","BarChart");
+          }
+
+          <div> {
+            var $bubbleData =  "['ID', 'Life Expectancy', 'Fertility Rate', 'Region',     'Population'],
+                                ['CAN',    80.66,              1.67,      'North America',  33739900],
+                                ['DEU',    79.84,              1.36,      'Europe',         81902307],
+                                ['DNK',    78.6,               1.84,      'Europe',         5523095],
+                                ['EGY',    72.73,              2.78,      'Middle East',    79716203],
+                                ['GBR',    80.05,              2,         'Europe',         61801570],
+                                ['IRN',    72.49,              1.7,       'Middle East',    73137148],
+                                ['IRQ',    68.09,              4.77,      'Middle East',    31090763],
+                                ['ISR',    81.55,              2.96,      'Middle East',    7485600],
+                                ['RUS',    68.6,               1.54,      'Europe',         141850000],
+                                ['USA',    78.09,              2.05,      'North America',  307007000]";
+            var $bubbleOptions = "title: 'Correlation between life expectancy, fertility rate and population of some world countries (2010)',hAxis: {title: 'Life Expectancy'},vAxis: {title: 'Fertility Rate'},bubble: {textStyle: {fontSize: 11}}";
+            var $bubbleStyle = "width: 100%; height: 75%;";
+            copy-of jspace:drawchart($bubbleData,$bubbleOptions,"bubble",$bubbleStyle,"corechart","BubbleChart");
+          }
+
+          <div> {
+            var $mapData = "['Country', 'Population'],
+                            ['China', 'China: 1,363,800,000'],
+                            ['India', 'India: 1,242,620,000'],
+                            ['US', 'US: 317,842,000'],
+                            ['Indonesia', 'Indonesia: 247,424,598'],
+                            ['Brazil', 'Brazil: 201,032,714'],
+                            ['Pakistan', 'Pakistan: 186,134,000'],
+                            ['Nigeria', 'Nigeria: 173,615,000'],
+                            ['Bangladesh', 'Bangladesh: 152,518,015'],
+                            ['Russia', 'Russia: 146,019,512'],
+                            ['Japan', 'Japan: 127,120,000']";
+            var $mapOptions = "showTip: true";
+            var $mapStyle = "width: 100%; height: 75%;";
+            copy-of jspace:drawchart($mapData,$mapOptions,"map",$mapStyle,"map","Map");
+          }
+
+          <div> {
+            var $lineData =  "['X','Dogs','Cats'],
+                              [0, 0, 0],   [1, 10, 5],  [2, 23, 15],
+                              [3, 17, 9],  [4, 18, 10],  [5, 9, 5],
+                              [6, 11, 3],  [7, 27, 19],  [8, 33, 25],
+                              [9, 40, 32],  [10, 32, 24], [11, 35, 27],
+                              [12, 30, 22], [13, 40, 32], [14, 42, 34],
+                              [15, 47, 39], [16, 44, 36], [17, 48, 40],
+                              [18, 52, 44], [19, 54, 46], [20, 42, 34],
+                              [21, 55, 47], [22, 56, 48], [23, 57, 49],
+                              [24, 60, 52], [25, 50, 42], [26, 52, 44],
+                              [27, 51, 43], [28, 49, 41], [29, 53, 45],
+                              [30, 55, 47], [31, 60, 52], [32, 61, 53],
+                              [33, 59, 51], [34, 62, 54], [35, 65, 57],
+                              [36, 62, 54], [37, 58, 50], [38, 55, 47],
+                              [39, 61, 53], [40, 64, 56], [41, 65, 57],
+                              [42, 63, 55], [43, 66, 58], [44, 67, 59],
+                              [45, 69, 61], [46, 69, 61], [47, 70, 62],
+                              [48, 72, 64], [49, 68, 60], [50, 66, 58],
+                              [51, 65, 57], [52, 67, 59], [53, 70, 62],
+                              [54, 71, 63], [55, 72, 64], [56, 73, 65],
+                              [57, 75, 67], [58, 70, 62], [59, 68, 60],
+                              [60, 64, 56], [61, 60, 52], [62, 65, 57],
+                              [63, 67, 59], [64, 68, 60], [65, 69, 61],
+                              [66, 70, 62], [67, 72, 64], [68, 75, 67],
+                              [69, 80, 72]";
+            var $lineOptions = "hAxis: {title: 'Time'},vAxis: {title: 'Popularity'},series: {1: {curveType: 'function'}}";
+            var $lineStyle = "width: 100%; height: 75%;";
+            copy-of jspace:drawchart($lineData,$lineOptions,"line",$lineStyle,"corechart","LineChart");
+          }
+
+          <div> {
+            var $pieData2 = "['Type', 'Sessions'],['DHCP',11],['PPPOE',2],['VLAN',2],['ESSMD',2],['Others',7]";
+            var $pieOptions2 = "title: 'Subscriber Sessions', forceIFrame: true, pieSliceText: 'percentage',pieHole: 0.35";
+            var $pieStyle2 = "width: 100%; height: 100%;";
+            copy-of jspace:drawchart($pieData2,$pieOptions2,"pie2",$pieStyle2,"corechart","PieChart");
+          }
+
+        } /* end of body */
+      } /* end of html */
+    }
+  }
+}
+
+
+/* draw googlechart */
+/* a function to draw a chart with the required parameters */
+<func:function name="jspace:drawchart">
+{
+  param $data;      /* chart data           */
+  param $options;   /* chart options        */
+  param $id;        /* div id               */
+  param $style;     /* div style            */
+  param $packages;  /* google chart package */
+  param $type;      /* google chart type    */
+  param $css;       /* css style sheet      */
+  param $formatter; /* formatter code       */
+
+  var $html = '<div id="' _ $id _ '" style="' _ $style _ '">';
+  var $jscript = {
+    uexpr '<script type="text/javascript" src="https://www.google.com/jsapi"></script>';
+    <script type="text/javascript"> {
+      uexpr 'google.load("visualization", "1", {packages:["' _ $packages _ '"]});';
+      uexpr 'google.setOnLoadCallback(drawChart);';
+      uexpr 'function drawChart() {';
+      uexpr "  var data = google.visualization.arrayToDataTable([";
+      uexpr $data;
+      uexpr "  ]);";
+
+      uexpr "var cssClassNames = ";
+      uexpr $css;
+      uexpr ";";
+      uexpr "  var options = {";
+      uexpr $options;
+      uexpr " ,'allowHtml': true, 'cssClassNames': cssClassNames };";
+      uexpr "  var chart = new google.visualization." _ $type _ "(document.getElementById('" _ $id _ "'));";
+      if ($formatter != "") {
+        copy-of $formatter;
+      }
+      uexpr "  chart.draw(data, options);";
+      uexpr "}";
+    }
+  }
+  var $draw = {
+    <script type="text/javascript"> {
+      uexpr "var iframe = document.createElement('iframe');";
+      uexpr "var html = '<head>";
+      copy-of $jscript;
+      uexpr "</head><body>" _ $html _ "</body>';";
+      uexpr "iframe.src = 'data:text/html;charset=utf-8,' + encodeURI(html);";
+      uexpr "document.body.appendChild(iframe);";
+      uexpr "console.log('iframe.contentWindow =', iframe.contentWindow);";
+    }
+  }
+  <func:result select=" $draw ">;
+}

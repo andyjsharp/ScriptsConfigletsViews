@@ -1,0 +1,48 @@
+version 1.0;
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+import "../import/junos.xsl";
+
+/* @ISLOCAL = "true" */
+/* @NAME = "Example Script" */
+/* @DESCRIPTION = "Example Script" */
+
+var $local = jcs:open();
+
+match / {
+    <op-script-results> {
+    	<output> {
+    		expr "\n";
+
+    		var $rpc = <get-configuration database="committed"> {
+    			<configuration> {
+    				<security> {
+    					<ike> {
+    					}
+    				}
+    			}
+    		}
+
+    		var $ike = jcs:execute($local,$rpc);
+    		for-each ($ike//gateway) {
+    			expr "set security ike gateway " _ name _ " remote-identity inet " _ remote-identity/inet/identity-ipv4 _ "\n";
+    		}
+
+    		expr "\n";
+
+    		var $rpc2 = {
+    			<get-ike-security-associations-information> {
+    				<detail>;
+    			}
+    		}
+    		var $detail = jcs:execute($local,$rpc2);
+
+    		for-each ($detail/multi-routing-engine-item/ike-security-associations-information/ike-security-associations-block) {
+    			expr "IKE peer " _ ike-sa-remote-address _ ", Index " _ ike-sa-index _ ", Gateway Name: " _ ike-gw-name _ "\n";
+    		}
+
+    		expr jcs:close($local);
+    	}
+    }
+}

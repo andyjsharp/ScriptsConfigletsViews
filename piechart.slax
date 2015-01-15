@@ -1,0 +1,131 @@
+version 1.1;
+
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+
+import "../import/junos.xsl";
+
+/* @CONTEXT = "/device" */
+/* @NAME = "Subscriber Types" */
+/* @DESCRIPTION = "Pie chart of subscriber types" */
+/* @ISLOCAL = "true" */
+/* @PROMOTE = "yes" */
+
+match / {
+    <op-script-results> {
+        var $local = jcs:open();
+        var $rpc = <get-subscribers-summary> {
+        }
+        var $results = jcs:execute( $local , $rpc );
+        /* prepare data names in a suitable format */
+        /* "dhcp", "vlan", "pppoe", "essm"         */
+        var $dataName = {
+            for-each ( $results/counters[@junos:style="type-summary"]/* ) {
+                if (not(name() == "session-type-total")) {
+                    expr '"' _ jcs:regex( "session-type-(.*)" , name() )[2] _ '"';
+                    /* no comma required on last data value (-1 because session-type-total is the last entry but skipped) */
+                    if ( position() != last()-1 ) {
+                        expr ', ';
+                    }
+                }
+            }
+        }
+
+        var $dataValue = {
+            for-each ( $results/counters[@junos:style="type-summary"]/* ) {
+                if (not(name() == "session-type-total")) {
+                    expr .;
+                    /* no comma required on last data value (-1 because session-type-total is the last entry but skipped) */
+                    if ( position() != last()-1 ) {
+                        expr ', ';
+                    }
+                }
+            }
+        }
+        /* number of samples excluding session-type-total */
+        var $numSamples = count($results/counters[@junos:style="type-summary"]/*) - 1;
+
+var $javascript = <script type="text/javascript"> {
+    uexpr  "var can, ctx,
+                numSamples,
+                xScalar, yScalar,
+                radius, interface;";
+    uexpr  "var dataName = [ " _ $dataName _ " ];";
+    uexpr  "var if1Value = [ " _ $dataValue _ " ];";
+    uexpr  "var fillColor = [\"red\", \"blue\", \"green\", \"orange\" ];";
+    uexpr  "function init() {
+                numSamples = ";
+    uexpr  $numSamples _ ";";
+    uexpr  "can = document.getElementById(\"can\");
+                interface = document.getElementById(\"interface\");
+                ctx = can.getContext(\"2d\");
+                drawPie();
+            }";
+    uexpr  "function drawPie() {
+                radius = can.height / 3;
+                var midX = can.width / 2;
+                var midY = can.height / 2;
+                ctx.strokeStyle = \"black\";
+                ctx.font = \"12pt Helvetica\";
+                ctx.textAlign = \"center\";
+                ctx.textBaseline = \"middle\";
+                // get data set
+                var dataValue = if1Value;
+                // calculate total value of pie
+                var total = 0;
+                for (var i = 0; i < numSamples; i++) {
+                    total += dataValue[i];
+                }
+                // get ready to draw
+                ctx.clearRect(0, 0, can.width, can.height);
+                var oldAngle = 0;
+
+                // for each sample
+                for (var i = 0; i < numSamples; i++) {
+                    // draw wedge
+                    var portion = dataValue[i] / total;
+                    var wedge = 2 * Math.PI * portion;
+                    ctx.beginPath();
+                    var angle = oldAngle + wedge;
+                    ctx.arc(midX, midY, radius, oldAngle, angle);
+                    ctx.lineTo(midX, midY);
+                    ctx.closePath();
+                    ctx.fillStyle = fillColor[i];  // needs to recycle colors
+                    ctx.fill();    // fill with wedge color
+                    ctx.stroke();  // outline in black
+
+                    // print label
+                    // set angle to middle of wedge
+                    var labAngle = oldAngle + wedge / 2;
+                    // set x, y for label outside center of wedge
+                    // adjust for fact text is wider than it is tall
+                    var labX = midX + Math.cos(labAngle) * radius * 1.5;
+                    var labY = midY + Math.sin(labAngle) * radius * 1.3 - 12;
+                    // print name and value
+                    ctx.save();
+                    ctx.fillStyle = fillColor[i];  // needs to recycle colors
+                    ctx.fillText(dataName[i], labX, labY);
+                    ctx.fillText(dataValue[i], labX, labY + 25);
+                    ctx.restore();
+                    // update beginning angle for next wedge
+                    oldAngle += wedge;
+                }
+            }";
+        } /* end of javascript */
+
+        <output> {
+            <html> {
+                <head> {
+                    copy-of $javascript;
+                }
+                <body onload="init()"> {
+                    <div align="center"> {
+                        <p style="font:10pt Helvetica;font-weight:bolder"> "Subscriber Type Session Summary";
+                        <canvas id="can" height="280" width="500">;
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,56 @@
+version 1.0;
+
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+ns str = "http://exslt.org/strings";
+ns exsl extension = "http://exslt.org/common";
+
+import "../import/junos.xsl";
+
+/* @CONTEXT = "/device" */
+/* @NAME = "Login Failure Event Script" */
+/* @DESCRIPTION = "Event Script" */
+
+var $event-definition = {
+	<event-options> {
+		<policy> {
+			<name> "TRAP_LOGIN_FAIL";
+			<events> "SSHD_LOGIN_FAILED";
+			<then> {
+				<event-script> {
+					<name> "login-failure-event.slax";
+				}
+			}
+		}
+
+	}
+}
+
+match / {
+	<event-script-results> {
+		/* open connection */
+    	var $connection = jcs:open();
+
+    	/* process event input */
+    	var $username = event-script-input/trigger-event/attribute-list/attribute[name=="username"]/value;
+    	var $message = event-script-input/trigger-event/message;
+    	var $source-address = event-script-input/trigger-event/attribute-list/attribute[name=="source-address"]/value;
+
+    	/* create trap */
+		var $requestSnmpTrap = <request-snmp-generate-trap> {
+			<trap> "jnxEventTrap";
+			<variable-bindings> "jnxEventTrapDescr[0]=Event-Trap, "
+			_ "jnxEventAvAttribute[1]=event, " _ "jnxEventAvValue[1]=SSHD_LOGIN_FAILED, "
+			_ "jnxEventAvAttribute[2]=username, " _ "jnxEventAvValue[2]=" _ $username _ ", "
+			_ "jnxEventAvAttribute[3]=message, " _ "jnxEventAvValue[3]=" _ $message _ ", "
+			_ "jnxEventAvAttribute[4]=source-address, " _ "jnxEventAvValue[4]=" _ $source-address;
+		}
+
+		/* send trap */
+		var $snmpResult = jcs:execute( $connection, $requestSnmpTrap );
+
+		/* close connection */
+		expr jcs:close($connection);
+	}
+}

@@ -1,0 +1,447 @@
+version 1.1;
+
+/* Namespace declarations */
+ns junos = "http://xml.juniper.net/junos/*/junos";
+ns xnm = "http://xml.juniper.net/xnm/1.1/xnm";
+ns jcs = "http://xml.juniper.net/junos/commit-scripts/1.0";
+ns curl extension = "http://xml.libslax.org/curl";
+ns func extension = "http://exslt.org/functions";
+ns jspace = "http://jspace-utils/asharp@juniper.net";
+
+/* Imports */
+import "../import/junos.xsl";
+
+/* This script requires Junos Space 13.1 or higher
+ * For this script to detect a TAG defined inside
+ * the configuration, the format of the annotation
+ * should be as follows:
+ 
+   TAG:Example Public Tag:public:
+   TAG:Example Private Tag:private:
+   
+*/
+
+/*
+  Discover XML format:
+  http://www.juniper.net/techpubs/en_US/junos-space-sdk/13.1/apiref/com.juniper.junos_space.sdk.help/schema/vnd.net.juniper.space.device-management.discover-devices_v2.xsd
+*/
+
+/* Junos Space specific context, name and description */
+/* @CONTEXT = "//" */
+/* @NAME = "Discover [AutoTagging]" */
+/* @DESCRIPTION = "Discover with tags" */
+/* @ISLOCAL = "true" */
+/* @EXECUTIONTYPE = "SINGLEEXECUTION" */
+/* @CONFIRMATION = "Please be patient, as this script can take time to complete. Is it OK to continue?" */
+/* @PASSSPACEAUTHHEADER = "true" */
+/* @VARIABLECONTEXT = "[{'name':'snmpPrivacyType','selectionvalues':'AES128,DES,NONE','defaultvalue':'NONE'},{'name':'snmpAuthenticationType','selectionvalues':'MD5,SHA1,NONE','defaultvalue':'NONE'},{'name':'TAGTYPE','selectionvalues':'private,public','defaultvalue':'public'},{'name':'PING','selectionvalues':'Yes,No','defaultvalue':'Yes'},{'name':'SNMP','selectionvalues':'v1,v2c,v3,No','defaultvalue':'v2c'},{'name':'COMMUNITY','defaultvalue':'public'},{'name':'snmpPassword','password':'yes'},{'name':'Password','password':'yes'},{'name':'snmpPrivacyPassword','password':'yes'}]" */
+/* @PROMOTE = "Yes" */
+
+var $arguments = {
+	<argument> {
+		<name> "UserName";
+		<description> "UserName Credentials for discovery";
+	}
+	<argument> {
+		<name> "Password";
+		<description> "Password Credentials for discovery";
+	}
+	<argument> {
+		<name> "IP";
+		<description> "IP Address";
+	}
+	<argument> {
+		<name> "TAG";
+		<description> "Optional Tag to assign to device";
+	}
+	<argument> {
+		<name> "TAGTYPE";
+		<description> "Tag attribute [private,public]";
+	}
+	<argument> {
+		<name> "PING";
+		<description> "Use Ping in discovery? [Yes,No]";
+	}
+	<argument> {
+		<name> "SNMP";
+		<description> "Use SNMP in discovery? [v1,v2c,v3,No]";
+	}
+	<argument> {
+		<name> "COMMUNITY";
+		<description> "SNMP Community [only use with v1/v2c]";
+	}
+	<argument> {
+		<name> "snmpUserName";
+		<description> "SNMPv3 UserName";
+	}
+	<argument> {
+		<name> "snmpAuthenticationType";
+		<description> "SNMPv3 Authentication Type [MD5,SHA,None]";
+	}
+	<argument> {
+		<name> "snmpPassword";
+		<description> "SNMPv3 Authentication Password";
+	}
+	<argument> {
+		<name> "snmpPrivacyType";
+		<description> "SNMPv3 Privacy Type [3DES,AES128,DES,None]";
+	}
+	<argument> {
+		<name> "snmpPrivacyPassword";
+		<description> "SNMPv3 Privacy Password";
+	}
+}
+param $UserName;
+param $Password;
+param $IP;
+param $TAG;
+param $TAGTYPE;
+param $PING;
+param $SNMP;
+param $COMMUNITY;
+param $snmpUserName;
+param $snmpAuthenticationType;
+param $snmpPassword;
+param $snmpPrivacyType;
+param $snmpPrivacyPassword;
+
+var $curl = curl:open();
+
+var $fabric = {
+    if ( contains( $JSESSIONID, "server") ) {
+        expr jcs:regex("\.(space-[A-Za-z0-9]+):server",$JSESSIONID)[2];
+    } else {
+        expr jcs:regex("\.(space-[A-Za-z0-9]+)",$JSESSIONID)[2];
+    }
+}
+
+match / {
+	<op-script-results> {
+		<output> {
+			call async_queue( $action = "remove" );  						/*   remove old queue   */
+			call async_queue( $action = "create" );  						/*   create new queue   */
+
+			var $job = jspace:discovery();									/*   device discovery   */
+			expr "\nDiscovery job id: " _ $job _ "\n";
+			call job_verify( $job );										/*   verify discovery   */
+
+			var $device-id = jspace:getdeviceid();							/*      get device      */
+			expr "Device id:        " _ $device-id _ "\n";
+																			/*   get configuration  */
+			var $get-config = <get-configuration database="committed"> {
+				<configuration> {
+					<system>;
+				}
+			}
+			var $remote = jcs:open( $IP, $UserName , $Password );
+			var $config-results = jcs:execute( $remote , $get-config );
+			expr jcs:close( $remote );
+																			/*   tags in comments   */
+			for-each ( $config-results/descendant::comment ) {
+				if ( contains( . , "TAG:") ) {
+					var $tagName = jcs:regex( "/\* TAG:([^:]+)"  , . )[2];
+					var $tagType = jcs:regex( "/\* TAG:[^:]+:([^:]+):"  , . )[2];
+					call process-tag( $tagName , $tagType , $device-id );
+				}
+			}
+																			/*   user defined tag   */
+			call process-tag( $tagName = $TAG , $tagType = $TAGTYPE , $device-id );
+
+			call async_queue( $action = "delete" );							/*     remove queue     */
+
+			expr "\n----------------------------------------------\n";
+			expr "Discovery with tag assignment is now complete.\n";
+			expr "----------------------------------------------\n";
+		}
+	}
+}
+
+
+/* create or remove asynchronous queue */
+template async_queue ( $action ) {
+	if ( $action == "create" ) {
+		var $create-queue := {
+			<method> "post";
+			<url> "http://" _ $fabric _ ":8080/api/hornet-q/queues";
+			<header name="Cookie"> "JSESSIONID=" _ $JSESSIONID _ ";Path=/;";
+			<header name="Cookie"> "JSESSIONIDSSO=" _ $JSESSIONIDSSO _ ";Path=/;";
+			<content-type> "application/hornetq.jms.queue+xml";
+			<contents> {
+				<queue name="tagDiscovery"> {
+					<durable> "false";
+				}
+			}
+			<format> "xml";
+		}
+		var $create-queue-results = curl:perform($curl , $create-queue );
+		/*
+		 * http error check
+		 * 201 - the request has been fulfilled and resulted in a new resource being created
+		*/
+		if ( not( $create-queue-results/headers/code == "201" ) ) {
+			<xsl:message terminate="yes"> "Error " _ $create-queue-results/headers/code _ " - " _ $create-queue-results/headers/message _ ".";
+		}
+	}
+	if ( $action == "delete" ) {
+		var $delete-queue := {
+			<method> "delete";
+			<url> "http://" _ $fabric _ ":8080/api/hornet-q/queues/jms.queue.tagDiscovery";
+			<header name="Cookie"> "JSESSIONID=" _ $JSESSIONID _ ";Path=/;";
+			<header name="Cookie"> "JSESSIONIDSSO=" _ $JSESSIONIDSSO _ ";Path=/;";
+			<content-type> "application/hornetq.jms.queue+xml";
+			<contents> {
+				<queue name="tagDiscovery"> {
+					<durable> "false";
+				}
+			}
+			<format> "xml";
+		}
+		var $delete-queue-results = curl:perform($curl , $delete-queue );
+		/*
+		 * http error check
+		 * 204 - the request has been fulfilled and resulted in a new resource being created
+		*/
+		if ( not( $delete-queue-results/headers/code == "204" ) ) {
+			<xsl:message terminate="yes"> "Error " _ $delete-queue-results/headers/code _ " - " _ $delete-queue-results/headers/message _ ".";
+		}
+	}
+	/* remove the queue without checking for results */
+	if ( $action == "remove" ) {
+		var $remove-queue := {
+			<method> "delete";
+			<url> "http://" _ $fabric _ ":8080/api/hornet-q/queues/jms.queue.tagDiscovery";
+			<header name="Cookie"> "JSESSIONID=" _ $JSESSIONID _ ";Path=/;";
+			<header name="Cookie"> "JSESSIONIDSSO=" _ $JSESSIONIDSSO _ ";Path=/;";
+			<content-type> "application/hornetq.jms.queue+xml";
+			<contents> {
+				<queue name="tagDiscovery"> {
+					<durable> "false";
+				}
+			}
+			<format> "xml";
+		}
+		var $remove-queue-results = curl:perform($curl , $remove-queue );
+	}
+}
+
+
+
+template job_verify( $job ) {
+	mvar $status = "UNDETERMINED";
+	while ( $status == "UNDETERMINED" ) {
+		expr jcs:sleep(10);
+		var $jobstatus := {
+			<method> "get";
+			<url> "http://" _ $fabric _ ":8080/api/space/job-management/jobs/" _ $job _ "/progress-update";
+			<header name="Cookie"> "JSESSIONID=" _ $JSESSIONID _ ";Path=/;";
+			<header name="Cookie"> "JSESSIONIDSSO=" _ $JSESSIONIDSSO _ ";Path=/;";
+			<format> "xml";
+		} 
+		var $results = curl:perform($curl , $jobstatus );
+		set $status = $results/data/progress-update/status;
+	}
+
+	if ( $status == "SUCCESS") {
+		/* discovery successful */
+		expr "Discovery status: " _ $status _ "\n";
+	}
+	else {
+		/* we have a problem */
+		call async_queue( $action = "delete" );
+		expr "The discovery did not complete, and reports a status of: " _ $status _ "\nPlease check job management logs for further information.\n";
+		<xsl:message terminate="yes"> "Error Discovery did not complete. " _ $status _ " .";
+	}
+}
+
+template process-tag ( $tagName , $tagType , $device-id ) {
+	if ( $tagName ) {
+		expr "Tag required: " _ $tagName _ " (" _ $tagType _ ")\n";
+		var $create := {
+			<method> "post";
+			<url> "http://" _ $fabric _ ":8080/api/space/tag-management/tags";
+			<header name="Cookie"> "JSESSIONID=" _ $JSESSIONID _ ";Path=/;";
+			<header name="Cookie"> "JSESSIONIDSSO=" _ $JSESSIONIDSSO _ ";Path=/;";
+			<content-type> "application/vnd.net.juniper.space.tag-management.tag+xml;version=1;charset=UTF-8";
+			<contents> {
+				<tag> {
+					<name> $tagName;
+					<type> $tagType;
+					<targets> {
+						uexpr "<target href=\"/api/space/device-management/devices/" _ $device-id _ "\"/>";
+					}
+				}
+			}
+			<format> "xml";
+		}
+		var $results = curl:perform($curl , $create );
+		/*
+		 * http error check
+		 * 200 & 412
+		*/
+		if ( not( $results/headers/code == "200" || $results/headers/code == "412" ) ) {
+			call async_queue( $action = "delete" );
+			expr "Error " _ $results/headers/code _ " - " _ $results/headers/message _ ".\n";
+			<xsl:message terminate="yes"> "Error " _ $results/headers/code _ " - " _ $results/headers/message _ ".";
+		}
+		/* tag cannot be created as it already exists */
+		if ($results/headers/code == "412") {
+			/* identify tag that already exists */
+			var $query = curl:perform( $curl , jspace:gettag( jspace:server( "localhost:8080" , "/api/space/tag-management/tags" ) ,
+						 $tagName , $tagType ) );
+
+			/* assign device to this tag directly */
+			var $add := {
+				<method> "post";
+				<url> "http://" _ $fabric _ ":8080/api/space/tag-management/tags/" _ $query/data/tags/tag/id _ "/targets" ;
+				<header name="Cookie"> "JSESSIONID=" _ $JSESSIONID _ ";Path=/;";
+				<header name="Cookie"> "JSESSIONIDSSO=" _ $JSESSIONIDSSO _ ";Path=/;";
+				<content-type> "application/vnd.net.juniper.space.tag-management.target+xml;version=1;charset=UTF-8";
+				<contents> {
+					uexpr "<target href=\"/api/space/device-management/devices/" _ $device-id _ "\"/>";
+				}
+				<format> "xml";
+			}
+			var $add-results = curl:perform($curl , $add );
+
+			/*
+			 * http error check
+			 * 200 & 412
+			*/
+			if ( not( $add-results/headers/code == "200" || $results/headers/code == "412" ) ) {
+				call async_queue( $action = "delete" );
+				expr "Error " _ $add-results/headers/code _ " - " _ $add-results/headers/message _ ".\n";
+				<xsl:message terminate="yes"> "Error " _ $add-results/headers/code _ " - " _ $add-results/headers/message _ ".";
+			}
+			/* if device was previously discovered, a 412 is generated when a tag has already been applied */
+			if ( $results/headers/code == "412" ) {
+				expr "Tag id " _ $query/data/tags/tag/id _ " previously applied.\n";
+			}
+			else if ( $results/headers/code == "200" ) {
+				expr "Applied tag id: " _ $query/data/tags/tag/id _ "\n";
+			}
+		}
+		else {
+			expr "A new tag created.\n";
+		}
+	}
+}
+
+/* functions */
+<func:function name="jspace:server">
+{
+	param $server;
+	param $uri;
+	var $url = "http://" _ $server _ $uri;
+	<func:result select="string( $url )">;
+}
+
+<func:function name="jspace:deviceipaddr">
+{
+	param $url;
+	param $content-type;
+	param $IP;
+	var $query := {
+		<method> "get";
+		<insecure>;
+		<url> $url;
+		<param name="filter"> "(ipAddr eq '" _ $IP _ "')";
+		<header name="Cookie"> "JSESSIONID=" _ $JSESSIONID _ ";Path=/;";
+		<header name="Cookie"> "JSESSIONIDSSO=" _ $JSESSIONIDSSO _ ";Path=/;";
+		<content-type> $content-type;
+		<format> "xml";
+	}
+	<func:result select=" $query ">;
+}
+
+<func:function name="jspace:gettag">
+{
+	param $url;
+	param $TAG;
+	param $TAGTYPE;
+	var $query := {
+		<method> "get";
+		<insecure>;
+		<url> $url;
+		<param name="filter"> "(name eq '" _ $TAG _ "' and type eq '" _ $TAGTYPE _ "')";
+		<header name="Cookie"> "JSESSIONID=" _ $JSESSIONID _ ";Path=/;";
+		<header name="Cookie"> "JSESSIONIDSSO=" _ $JSESSIONIDSSO _ ";Path=/;";
+		<format> "xml";
+	}
+	<func:result select=" $query ">;
+}
+
+
+<func:function name="jspace:getdeviceid">
+{
+	var $results = curl:perform( $curl , jspace:deviceipaddr( jspace:server( "localhost:8080" , "/api/space/device-management/devices" ) ,
+						"application/vnd.net.juniper.space.device-management.devices+xml;version=1" , $IP ) );
+	<func:result select=" $results/data/devices/device/@key ">;
+}
+
+
+<func:function name="jspace:discovery">
+{
+	var $discovery := {
+		<method> "post";
+		<url> "http://" _ $fabric _ ":8080/api/space/device-management/discover-devices?queue-url=http://" _ $fabric _ ":8080/api/hornet-q/queues/jms.queue.tagDiscovery";
+		<header name="Cookie"> "JSESSIONID=" _ $JSESSIONID _ ";Path=/;";
+		<header name="Cookie"> "JSESSIONIDSSO=" _ $JSESSIONIDSSO _ ";Path=/;";
+		<content-type> "application/vnd.net.juniper.space.device-management.discover-devices+xml;version=2;charset=UTF-8";
+		<contents> {
+			<discover-devices> {
+				<ipAddressDiscoveryTarget> {
+					<exclude> "false";
+					<ipAddress> $IP;
+				}
+				if ($PING == "Yes") {
+					<usePing> "true";
+				}
+				else {
+					<usePing> "false";
+				}
+				if ($SNMP == "v1" || $SNMP == "v2c"|| $SNMP == "v3") {
+					<useSnmp> "true";
+					if ($SNMP == "v1") {
+						<snmpV1Setting> {
+							<communityName> $COMMUNITY;
+						}
+					}
+					else if ($SNMP == "v2c") {
+						<snmpV2CSetting> {
+							<communityName> $COMMUNITY;
+						}
+					}
+					else if ($SNMP == "v3"){
+						<snmpV3Setting> {
+							<userName> $snmpUserName;
+							<authenticationType> $snmpAuthenticationType;
+							<privacyType> $snmpPrivacyType;
+							<authenticationPassword> $snmpPassword;
+							<privacyPassword> $snmpPrivacyPassword;
+						}
+					}
+				}
+				else if ( $SNMP == "No" ){
+					<useSnmp> "false";
+				}
+				<manageDiscoveredSystemsFlag> "true";
+				<sshCredential> {
+					<userName> $UserName;
+					<password> $Password;
+				}
+			}
+		}
+		<format> "xml";
+	}
+	var $results = curl:perform( $curl , $discovery );
+	/*
+	 * http error check
+	 * 202 
+	*/
+	if ( not( $results/headers/code == "202" ) ) {
+		call async_queue( $action = "delete" );
+		expr "Error " _ $results/headers/code _ " - " _ $results/headers/message _ ".\n";
+		<xsl:message terminate="yes"> "Error " _ $results/headers/code _ " - " _ $results/headers/message _ ".";
+	}
+	<func:result select=" $results/data/task/id ">;
+}
